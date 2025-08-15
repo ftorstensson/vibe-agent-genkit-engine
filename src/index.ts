@@ -25,19 +25,47 @@ async function getGenkitPromptFromFirestore(promptId: string): Promise<string> {
     throw new Error(`Prompt '${promptId}' not found or is empty.`);
   } catch (error) {
     console.error(`Failed to fetch Genkit prompt '${promptId}':`, error);
-    // Provide a safe fallback to prevent crashes
     return "You are a helpful assistant. Your primary prompt failed to load.";
   }
 }
 
-// --- ARCE Agent Flows (Pure Google MVP) ---
-const architectFlow = ai.defineFlow({ name: 'architectFlow', inputSchema: z.string(), outputSchema: z.string() }, async (taskDescription) => {
-    const prompt = await getGenkitPromptFromFirestore('architect');
-    const response = await ai.generate({ model: gemini15Pro, messages: [{ role: 'system', content: [{ text: prompt }] }, { role: 'user', content: [{ text: taskDescription }] }], config: { temperature: 0.0 } });
-    let plan = response.text;
-    if (plan.startsWith("```json")) { plan = plan.slice(7, -3).trim(); }
-    try { JSON.parse(plan); return plan; } catch (e) { throw new Error("Architect failed to generate a valid JSON plan."); }
+// --- DEFINITIVE FIX: Define a schema for the Architect's plan ---
+const PlanSchema = z.object({
+  title: z.string().describe("A short, descriptive title for the plan."),
+  steps: z.array(z.string()).describe("A list of clear, actionable steps to accomplish the task."),
 });
+
+
+// --- ARCE Agent Flows (With JSON Fix) ---
+const architectFlow = ai.defineFlow(
+  {
+    name: 'architectFlow',
+    inputSchema: z.string(),
+    outputSchema: PlanSchema,
+  },
+  async (taskDescription) => {
+    const prompt = await getGenkitPromptFromFirestore('architect');
+
+    const response = await ai.generate({
+      model: gemini15Pro,
+      messages: [
+        { role: 'system', content: [{ text: prompt }] },
+        { role: 'user', content: [{ text: taskDescription }] },
+      ],
+      output: { schema: PlanSchema },
+      config: { temperature: 0.0 },
+    });
+
+    const plan = response.output;
+
+    // --- DEFINITIVE FIX: Handle the possibility of a null response ---
+    if (!plan) {
+      throw new Error("Architect failed to generate a valid plan object.");
+    }
+
+    return plan;
+  }
+);
 
 const searchAndAnswerFlow = ai.defineFlow({ name: 'searchAndAnswerFlow', inputSchema: z.string(), outputSchema: z.string() }, async (question) => {
     const prompt = await getGenkitPromptFromFirestore('researcher');
@@ -65,5 +93,5 @@ startFlowServer({
     creatorFlow,
     editorFlow
   ],
-  port: 8080, // Explicitly set the port for Cloud Run
+  port: 8080,
 });
