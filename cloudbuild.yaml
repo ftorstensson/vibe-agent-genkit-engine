@@ -1,0 +1,20 @@
+steps:
+  # 1. Install all project dependencies
+  - name: 'gcr.io/cloud-builders/npm'
+    args: ['install']
+
+  # 2. Build the production code (compile TypeScript to JavaScript)
+  - name: 'gcr.io/cloud-builders/npm'
+    args: ['run', 'build']
+
+  # 3. Deploy the service to Google Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: 'gcloud'
+    args:
+      - 'run'
+      - 'deploy'
+      - 'vibe-ai-engine'                  # The name of our Cloud Run service
+      - '--source=.'                      # Deploy the code from the current directory
+      - '--region=australia-southeast1'   # The region where our service is hosted
+      - '--project=vibe-agent-final'      # The specific Google Cloud project ID
+      - '--allow-unauthenticated'         # Allows our other services to call this one
