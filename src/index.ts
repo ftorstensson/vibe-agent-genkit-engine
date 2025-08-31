@@ -1,10 +1,11 @@
 /*
  * File: src/index.ts
- * Version: 5.0.0 (Expert Edition - Definitive)
- * Date: 2025-08-29
+ * Version: 5.1.0 (Component Builder POC)
+ * Date: 2025-08-31
  * Objective: This is the definitive, expert-provided code for the Genkit AI Engine.
  *            It directly implements the validated second opinion to resolve all
  *            known TypeScript errors and establish a stable backend foundation.
+ *            This version adds the first proof-of-concept agent, the componentBuilderFlow.
 */
 
 import { genkit, z } from 'genkit';
@@ -72,7 +73,6 @@ const projectManagerChatFlow = ai.defineFlow(
         config: { temperature: 0.5 },
       });
       
-      // EXPERT FIX: .text is a property
       const responseText = response.text;
 
       if (!responseText) {
@@ -113,7 +113,6 @@ const architectFlow = ai.defineFlow(
       config: { temperature: 0.0 } 
     });
     
-    // EXPERT FIX: .output is a property
     const plan = response.output;
     if (!plan) { 
       throw new Error("Architect failed to generate a valid plan object.");
@@ -149,6 +148,44 @@ const editorFlow = ai.defineFlow(
   }
 );
 
+
+// ===================================================================================
+// === NEW AGENT: Frontend Component Builder (Proof of Concept)
+// ===================================================================================
+const componentBuilderFlow = ai.defineFlow(
+  {
+    name: 'componentBuilderFlow',
+    inputSchema: z.string().describe('A natural language description of a UI component.'),
+    outputSchema: z.string().describe('A string containing the generated React/TypeScript component code.'),
+  },
+  async (description) => {
+    
+    // For now, we will hardcode the prompt. In the future, we can move this to Firestore.
+    const systemPrompt = `
+      You are an expert frontend developer specializing in React and TypeScript.
+      Your task is to generate a single, self-contained, production-quality React component based on the user's request.
+
+      RULES:
+      1.  **Output ONLY the TypeScript code** for the .tsx file.
+      2.  Do NOT include any explanations, apologies, or introductory sentences.
+      3.  Do NOT wrap the code in markdown backticks (\`\`\`).
+      4.  The component must be a modern, functional React component using hooks.
+      5.  Use Tailwind CSS for styling.
+      6.  The code must be complete and syntactically correct.
+    `;
+    
+    const response = await ai.generate({
+      model: gemini15Pro,
+      system: systemPrompt,
+      prompt: description,
+    });
+
+    return response.text;
+  }
+);
+// ===================================================================================
+
+
 // --- Start the Server ---
 startFlowServer({
   flows: [
@@ -156,7 +193,8 @@ startFlowServer({
     architectFlow,
     searchAndAnswerFlow,
     creatorFlow,
-    editorFlow
+    editorFlow,
+    componentBuilderFlow // <-- NEW FLOW ADDED HERE
   ],
   port: 8080,
 });
