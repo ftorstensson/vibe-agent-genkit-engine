@@ -1,11 +1,9 @@
 /*
  * File: src/index.ts
- * Version: 5.1.0 (Component Builder POC)
- * Date: 2025-08-31
- * Objective: This is the definitive, expert-provided code for the Genkit AI Engine.
- *            It directly implements the validated second opinion to resolve all
- *            known TypeScript errors and establish a stable backend foundation.
- *            This version adds the first proof-of-concept agent, the componentBuilderFlow.
+ * Version: 5.2.0 (Conductor Agent POC)
+ * Date: 2025-09-01
+ * Objective: Adds the 'taskExecutionFlow', a conductor agent that orchestrates
+ *            the architect and creator agents to demonstrate a multi-agent workflow.
 */
 
 import { genkit, z } from 'genkit';
@@ -39,7 +37,7 @@ async function getGenkitPromptFromFirestore(promptId: string): Promise<string> {
   }
 }
 
-// --- EXPERT FIX: Corrected Schemas for Chat Flow ---
+// --- Schemas ---
 const MessageSchema = z.object({
   role: z.enum(['user', 'model']).describe("The role of the message sender"),
   content: z.string().describe("The text content of the message"),
@@ -52,9 +50,12 @@ const ChatResponseSchema = z.object({
   content: z.string(),
 });
 
-// =================================================================
-// --- THE PROJECT MANAGER CHAT FLOW (EXPERT FIX) ---
-// =================================================================
+const PlanSchema = z.object({
+  title: z.string().describe("A short, descriptive title for the plan."),
+  steps: z.array(z.string()).describe("A list of clear, actionable steps to accomplish the task."),
+});
+
+// --- Existing Agent Flows ---
 const projectManagerChatFlow = ai.defineFlow(
   {
     name: 'projectManagerChatFlow',
@@ -68,33 +69,19 @@ const projectManagerChatFlow = ai.defineFlow(
         system: "You are a helpful and concise project manager AI.",
         messages: messages.map(msg => ({
           role: msg.role,
-          content: [{ text: msg.content }], // EXPERT SYNTHESIS: Content must be an array of parts
+          content: [{ text: msg.content }],
         })),
         config: { temperature: 0.5 },
       });
-      
       const responseText = response.text;
-
-      if (!responseText) {
-        throw new Error('AI failed to generate a response text.');
-      }
-
-      return {
-        role: 'model' as const,
-        content: responseText,
-      };
+      if (!responseText) { throw new Error('AI failed to generate a response text.'); }
+      return { role: 'model' as const, content: responseText };
     } catch (error) {
       console.error('Error in projectManagerChatFlow:', error);
       throw new Error(`Chat flow failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 );
-
-// --- EXPERT FIX: Corrected Existing ARCE Agent Flows ---
-const PlanSchema = z.object({
-  title: z.string().describe("A short, descriptive title for the plan."),
-  steps: z.array(z.string()).describe("A list of clear, actionable steps to accomplish the task."),
-});
 
 const architectFlow = ai.defineFlow(
   { 
@@ -104,7 +91,6 @@ const architectFlow = ai.defineFlow(
   },
   async (taskDescription) => {
     const prompt = await getGenkitPromptFromFirestore('architect');
-    
     const response = await ai.generate({ 
       model: gemini15Pro,
       system: prompt,
@@ -112,11 +98,8 @@ const architectFlow = ai.defineFlow(
       output: { schema: PlanSchema }, 
       config: { temperature: 0.0 } 
     });
-    
     const plan = response.output;
-    if (!plan) { 
-      throw new Error("Architect failed to generate a valid plan object.");
-    }
+    if (!plan) { throw new Error("Architect failed to generate a valid plan object."); }
     return plan;
   }
 );
@@ -148,10 +131,6 @@ const editorFlow = ai.defineFlow(
   }
 );
 
-
-// ===================================================================================
-// === NEW AGENT: Frontend Component Builder (Proof of Concept)
-// ===================================================================================
 const componentBuilderFlow = ai.defineFlow(
   {
     name: 'componentBuilderFlow',
@@ -159,12 +138,9 @@ const componentBuilderFlow = ai.defineFlow(
     outputSchema: z.string().describe('A string containing the generated React/TypeScript component code.'),
   },
   async (description) => {
-    
-    // For now, we will hardcode the prompt. In the future, we can move this to Firestore.
     const systemPrompt = `
       You are an expert frontend developer specializing in React and TypeScript.
       Your task is to generate a single, self-contained, production-quality React component based on the user's request.
-
       RULES:
       1.  **Output ONLY the TypeScript code** for the .tsx file.
       2.  Do NOT include any explanations, apologies, or introductory sentences.
@@ -173,14 +149,46 @@ const componentBuilderFlow = ai.defineFlow(
       5.  Use Tailwind CSS for styling.
       6.  The code must be complete and syntactically correct.
     `;
-    
-    const response = await ai.generate({
-      model: gemini15Pro,
-      system: systemPrompt,
-      prompt: description,
-    });
-
+    const response = await ai.generate({ model: gemini15Pro, system: systemPrompt, prompt: description });
     return response.text;
+  }
+);
+
+// ===================================================================================
+// === NEW CONDUCTOR AGENT (Multi-Agent Proof of Concept)
+// ===================================================================================
+const taskExecutionFlow = ai.defineFlow(
+  {
+    name: 'taskExecutionFlow',
+    inputSchema: z.string().describe('A high-level task description from the user.'),
+    outputSchema: z.string().describe('The final, generated artifact (e.g., a report or document).'),
+  },
+  async (taskDescription) => {
+    console.log(`--- Conductor Agent: Starting task '${taskDescription}' ---`);
+
+    // 1. Call the Architect agent to create a plan
+    console.log(`--- Conductor Agent: Delegating to Architect... ---`);
+    const plan = await architectFlow(taskDescription);
+
+    // 2. Format the plan into a clear input for the Creator agent
+    const creatorInput = `
+      Please write a document based on the following plan.
+      Ensure the final output is well-structured and comprehensive.
+
+      Title: ${plan.title}
+
+      Steps:
+      ${plan.steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}
+    `;
+    
+    // 3. Call the Creator agent with the structured plan
+    console.log(`--- Conductor Agent: Delegating to Creator... ---`);
+    const draft = await creatorFlow(creatorInput);
+
+    console.log(`--- Conductor Agent: Task completed successfully! ---`);
+    
+    // 4. Return the final draft
+    return draft;
   }
 );
 // ===================================================================================
@@ -194,7 +202,8 @@ startFlowServer({
     searchAndAnswerFlow,
     creatorFlow,
     editorFlow,
-    componentBuilderFlow // <-- NEW FLOW ADDED HERE
+    componentBuilderFlow,
+    taskExecutionFlow // <-- NEW FLOW ADDED HERE
   ],
   port: 8080,
 });
