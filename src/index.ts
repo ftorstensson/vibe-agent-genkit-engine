@@ -1,9 +1,9 @@
 /*
  * File: src/index.ts
- * Version: 5.3.0 (Task Classifier Agent)
- * Date: 2025-09-02
- * Objective: Adds the 'taskClassifierFlow', a meta-agent that categorizes
- *            user input to power the backend's Smart Router.
+ * Version: 5.3.1 (Task Classifier Agent - FIX)
+ * Date: 2025-09-04
+ * Objective: Fixes a TypeError in the taskClassifierFlow by restructuring the
+ *            ai.generate() call to use the 'messages' array correctly.
 */
 
 import { genkit, z } from 'genkit';
@@ -19,6 +19,7 @@ const ai = genkit({
 });
 
 // --- Helper Functions ---
+// ... [No changes to helper functions] ...
 async function getGenkitPromptFromFirestore(promptId: string): Promise<string> {
   try {
     const docRef = db.collection('genkit_prompts').doc(promptId);
@@ -38,6 +39,7 @@ async function getGenkitPromptFromFirestore(promptId: string): Promise<string> {
 }
 
 // --- Schemas ---
+// ... [No changes to schemas] ...
 const MessageSchema = z.object({
   role: z.enum(['user', 'model']).describe("The role of the message sender"),
   content: z.string().describe("The text content of the message"),
@@ -56,6 +58,7 @@ const PlanSchema = z.object({
 });
 
 // --- Existing Agent Flows ---
+// ... [No changes to other flows] ...
 const projectManagerChatFlow = ai.defineFlow(
   {
     name: 'projectManagerChatFlow',
@@ -177,7 +180,7 @@ const taskExecutionFlow = ai.defineFlow(
 );
 
 // ===================================================================================
-// === NEW META AGENT: Task Classifier (For Smart Router)
+// === META AGENT: Task Classifier (For Smart Router) - CORRECTED
 // ===================================================================================
 const taskClassifierFlow = ai.defineFlow(
   {
@@ -198,16 +201,20 @@ const taskClassifierFlow = ai.defineFlow(
       - "component_request": The user is asking to create, build, design, or make a visual UI component. Keywords: "button", "form", "card", "navbar", "component", "UI", "design".
       - "task_request": The user is asking for a complex, multi-step task to be completed. Keywords: "write", "draft", "create a report", "summarize", "plan", "analyze".
       - "general_chat": The user is making a simple conversational statement, asking a question, or saying hello.
-
-      User Request: "${userInput}"
     `;
-
+    
+    // --- THE FIX ---
+    // We must use the 'messages' array and provide both a system and a user role.
     const response = await ai.generate({
       model: gemini15Pro,
-      system: systemPrompt,
-      output: { schema: z.string() }, // Force a simple string output
+      messages: [
+        { role: 'system', content: [{ text: systemPrompt }] },
+        { role: 'user', content: [{ text: `User Request: "${userInput}"`}] }
+      ],
+      output: { schema: z.string() }, // This is fine, we still want a simple string
       config: { temperature: 0.0 }
     });
+    // --- END OF FIX ---
 
     // Validate the response is one of the allowed enums, default to general_chat if not.
     const classification = response.text;
@@ -232,7 +239,7 @@ startFlowServer({
     editorFlow,
     componentBuilderFlow,
     taskExecutionFlow,
-    taskClassifierFlow // <-- NEW FLOW ADDED HERE
+    taskClassifierFlow
   ],
   port: 8080,
 });
