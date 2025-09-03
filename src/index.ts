@@ -1,9 +1,9 @@
 /*
  * File: src/index.ts
- * Version: 5.3.1 (Task Classifier Agent - FIX)
+ * Version: 5.3.2 (Task Classifier Agent - Final FIX)
  * Date: 2025-09-04
- * Objective: Fixes a TypeError in the taskClassifierFlow by restructuring the
- *            ai.generate() call to use the 'messages' array correctly.
+ * Objective: Fixes a schema validation error in the taskClassifierFlow by
+ *            removing the output schema and reliably using response.text().
 */
 
 import { genkit, z } from 'genkit';
@@ -19,7 +19,6 @@ const ai = genkit({
 });
 
 // --- Helper Functions ---
-// ... [No changes to helper functions] ...
 async function getGenkitPromptFromFirestore(promptId: string): Promise<string> {
   try {
     const docRef = db.collection('genkit_prompts').doc(promptId);
@@ -39,7 +38,6 @@ async function getGenkitPromptFromFirestore(promptId: string): Promise<string> {
 }
 
 // --- Schemas ---
-// ... [No changes to schemas] ...
 const MessageSchema = z.object({
   role: z.enum(['user', 'model']).describe("The role of the message sender"),
   content: z.string().describe("The text content of the message"),
@@ -58,7 +56,6 @@ const PlanSchema = z.object({
 });
 
 // --- Existing Agent Flows ---
-// ... [No changes to other flows] ...
 const projectManagerChatFlow = ai.defineFlow(
   {
     name: 'projectManagerChatFlow',
@@ -87,19 +84,19 @@ const projectManagerChatFlow = ai.defineFlow(
 );
 
 const architectFlow = ai.defineFlow(
-  {
-    name: 'architectFlow',
-    inputSchema: z.string(),
-    outputSchema: PlanSchema
+  { 
+    name: 'architectFlow', 
+    inputSchema: z.string(), 
+    outputSchema: PlanSchema 
   },
   async (taskDescription) => {
     const prompt = await getGenkitPromptFromFirestore('architect');
-    const response = await ai.generate({
+    const response = await ai.generate({ 
       model: gemini15Pro,
       system: prompt,
       prompt: taskDescription,
-      output: { schema: PlanSchema },
-      config: { temperature: 0.0 }
+      output: { schema: PlanSchema }, 
+      config: { temperature: 0.0 } 
     });
     const plan = response.output;
     if (!plan) { throw new Error("Architect failed to generate a valid plan object."); }
@@ -108,7 +105,7 @@ const architectFlow = ai.defineFlow(
 );
 
 const searchAndAnswerFlow = ai.defineFlow(
-  { name: 'searchAndAnswerFlow', inputSchema: z.string(), outputSchema: z.string() },
+  { name: 'searchAndAnswerFlow', inputSchema: z.string(), outputSchema: z.string() }, 
   async (question) => {
     const systemPrompt = await getGenkitPromptFromFirestore('researcher');
     const response = await ai.generate({ model: gemini15Pro, system: systemPrompt, prompt: question, config: { googleSearchRetrieval: {}, maxOutputTokens: 1000 } });
@@ -117,7 +114,7 @@ const searchAndAnswerFlow = ai.defineFlow(
 );
 
 const creatorFlow = ai.defineFlow(
-  { name: 'creatorFlow', inputSchema: z.string(), outputSchema: z.string() },
+  { name: 'creatorFlow', inputSchema: z.string(), outputSchema: z.string() }, 
   async (planAndResearch) => {
     const systemPrompt = await getGenkitPromptFromFirestore('creator');
     const response = await ai.generate({ model: gemini15Pro, system: systemPrompt, prompt: planAndResearch, config: { temperature: 0.5 } });
@@ -126,7 +123,7 @@ const creatorFlow = ai.defineFlow(
 );
 
 const editorFlow = ai.defineFlow(
-  { name: 'editorFlow', inputSchema: z.string(), outputSchema: z.string() },
+  { name: 'editorFlow', inputSchema: z.string(), outputSchema: z.string() }, 
   async (draft) => {
     const systemPrompt = await getGenkitPromptFromFirestore('editor');
     const response = await ai.generate({ model: gemini15Pro, system: systemPrompt, prompt: draft, config: { temperature: 0.2 } });
@@ -180,7 +177,7 @@ const taskExecutionFlow = ai.defineFlow(
 );
 
 // ===================================================================================
-// === META AGENT: Task Classifier (For Smart Router) - CORRECTED
+// === META AGENT: Task Classifier (For Smart Router) - FINAL FIX
 // ===================================================================================
 const taskClassifierFlow = ai.defineFlow(
   {
@@ -204,20 +201,21 @@ const taskClassifierFlow = ai.defineFlow(
     `;
     
     // --- THE FIX ---
-    // We must use the 'messages' array and provide both a system and a user role.
+    // Remove the `output` schema constraint and use the reliable `.text()` method.
     const response = await ai.generate({
       model: gemini15Pro,
       messages: [
         { role: 'system', content: [{ text: systemPrompt }] },
         { role: 'user', content: [{ text: `User Request: "${userInput}"`}] }
       ],
-      output: { schema: z.string() }, // This is fine, we still want a simple string
+      // REMOVED: output: { schema: z.string() },
       config: { temperature: 0.0 }
     });
     // --- END OF FIX ---
 
-    // Validate the response is one of the allowed enums, default to general_chat if not.
-    const classification = response.text;
+    // Now, we reliably get the text from the response.
+    const classification = response.text.trim();
+
     if (["component_request", "task_request", "general_chat"].includes(classification)) {
       return classification as "component_request" | "task_request" | "general_chat";
     }
