@@ -1,9 +1,9 @@
 /*
  * File: src/index.ts
- * Version: 5.2.0 (Conductor Agent POC)
- * Date: 2025-09-01
- * Objective: Adds the 'taskExecutionFlow', a conductor agent that orchestrates
- *            the architect and creator agents to demonstrate a multi-agent workflow.
+ * Version: 5.3.2 (Task Classifier Agent - Final FIX)
+ * Date: 2025-09-04
+ * Objective: Fixes a schema validation error in the taskClassifierFlow by
+ *            removing the output schema and reliably using response.text().
 */
 
 import { genkit, z } from 'genkit';
@@ -154,9 +154,6 @@ const componentBuilderFlow = ai.defineFlow(
   }
 );
 
-// ===================================================================================
-// === NEW CONDUCTOR AGENT (Multi-Agent Proof of Concept)
-// ===================================================================================
 const taskExecutionFlow = ai.defineFlow(
   {
     name: 'taskExecutionFlow',
@@ -165,30 +162,66 @@ const taskExecutionFlow = ai.defineFlow(
   },
   async (taskDescription) => {
     console.log(`--- Conductor Agent: Starting task '${taskDescription}' ---`);
-
-    // 1. Call the Architect agent to create a plan
-    console.log(`--- Conductor Agent: Delegating to Architect... ---`);
     const plan = await architectFlow(taskDescription);
-
-    // 2. Format the plan into a clear input for the Creator agent
     const creatorInput = `
       Please write a document based on the following plan.
       Ensure the final output is well-structured and comprehensive.
-
       Title: ${plan.title}
-
       Steps:
       ${plan.steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}
     `;
-    
-    // 3. Call the Creator agent with the structured plan
-    console.log(`--- Conductor Agent: Delegating to Creator... ---`);
     const draft = await creatorFlow(creatorInput);
-
     console.log(`--- Conductor Agent: Task completed successfully! ---`);
-    
-    // 4. Return the final draft
     return draft;
+  }
+);
+
+// ===================================================================================
+// === META AGENT: Task Classifier (For Smart Router) - FINAL FIX
+// ===================================================================================
+const taskClassifierFlow = ai.defineFlow(
+  {
+    name: 'taskClassifierFlow',
+    inputSchema: z.string().describe('The user\'s raw text input.'),
+    outputSchema: z.enum([
+      "component_request", // For requests to build a UI component
+      "task_request",      // For complex tasks requiring a multi-agent team
+      "general_chat"       // For anything else
+    ]).describe('The classification of the user\'s request.'),
+  },
+  async (userInput) => {
+    const systemPrompt = `
+      You are an expert task classifier. Your job is to analyze the user's request and classify it into one of the following categories.
+      You must respond with ONLY the category name and nothing else.
+
+      Categories:
+      - "component_request": The user is asking to create, build, design, or make a visual UI component. Keywords: "button", "form", "card", "navbar", "component", "UI", "design".
+      - "task_request": The user is asking for a complex, multi-step task to be completed. Keywords: "write", "draft", "create a report", "summarize", "plan", "analyze".
+      - "general_chat": The user is making a simple conversational statement, asking a question, or saying hello.
+    `;
+    
+    // --- THE FIX ---
+    // Remove the `output` schema constraint and use the reliable `.text()` method.
+    const response = await ai.generate({
+      model: gemini15Pro,
+      messages: [
+        { role: 'system', content: [{ text: systemPrompt }] },
+        { role: 'user', content: [{ text: `User Request: "${userInput}"`}] }
+      ],
+      // REMOVED: output: { schema: z.string() },
+      config: { temperature: 0.0 }
+    });
+    // --- END OF FIX ---
+
+    // Now, we reliably get the text from the response.
+    const classification = response.text.trim();
+
+    if (["component_request", "task_request", "general_chat"].includes(classification)) {
+      return classification as "component_request" | "task_request" | "general_chat";
+    }
+    
+    console.warn(`Classifier returned an unexpected value: '${classification}'. Defaulting to 'general_chat'.`);
+    return "general_chat";
   }
 );
 // ===================================================================================
@@ -203,7 +236,8 @@ startFlowServer({
     creatorFlow,
     editorFlow,
     componentBuilderFlow,
-    taskExecutionFlow // <-- NEW FLOW ADDED HERE
+    taskExecutionFlow,
+    taskClassifierFlow
   ],
   port: 8080,
 });
