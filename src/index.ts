@@ -1,9 +1,9 @@
 /*
  * File: src/index.ts
- * Version: 5.2.0 (Conductor Agent POC)
- * Date: 2025-09-01
- * Objective: Adds the 'taskExecutionFlow', a conductor agent that orchestrates
- *            the architect and creator agents to demonstrate a multi-agent workflow.
+ * Version: 5.3.0 (Task Classifier Agent)
+ * Date: 2025-09-02
+ * Objective: Adds the 'taskClassifierFlow', a meta-agent that categorizes
+ *            user input to power the backend's Smart Router.
 */
 
 import { genkit, z } from 'genkit';
@@ -84,19 +84,19 @@ const projectManagerChatFlow = ai.defineFlow(
 );
 
 const architectFlow = ai.defineFlow(
-  { 
-    name: 'architectFlow', 
-    inputSchema: z.string(), 
-    outputSchema: PlanSchema 
+  {
+    name: 'architectFlow',
+    inputSchema: z.string(),
+    outputSchema: PlanSchema
   },
   async (taskDescription) => {
     const prompt = await getGenkitPromptFromFirestore('architect');
-    const response = await ai.generate({ 
+    const response = await ai.generate({
       model: gemini15Pro,
       system: prompt,
       prompt: taskDescription,
-      output: { schema: PlanSchema }, 
-      config: { temperature: 0.0 } 
+      output: { schema: PlanSchema },
+      config: { temperature: 0.0 }
     });
     const plan = response.output;
     if (!plan) { throw new Error("Architect failed to generate a valid plan object."); }
@@ -105,7 +105,7 @@ const architectFlow = ai.defineFlow(
 );
 
 const searchAndAnswerFlow = ai.defineFlow(
-  { name: 'searchAndAnswerFlow', inputSchema: z.string(), outputSchema: z.string() }, 
+  { name: 'searchAndAnswerFlow', inputSchema: z.string(), outputSchema: z.string() },
   async (question) => {
     const systemPrompt = await getGenkitPromptFromFirestore('researcher');
     const response = await ai.generate({ model: gemini15Pro, system: systemPrompt, prompt: question, config: { googleSearchRetrieval: {}, maxOutputTokens: 1000 } });
@@ -114,7 +114,7 @@ const searchAndAnswerFlow = ai.defineFlow(
 );
 
 const creatorFlow = ai.defineFlow(
-  { name: 'creatorFlow', inputSchema: z.string(), outputSchema: z.string() }, 
+  { name: 'creatorFlow', inputSchema: z.string(), outputSchema: z.string() },
   async (planAndResearch) => {
     const systemPrompt = await getGenkitPromptFromFirestore('creator');
     const response = await ai.generate({ model: gemini15Pro, system: systemPrompt, prompt: planAndResearch, config: { temperature: 0.5 } });
@@ -123,7 +123,7 @@ const creatorFlow = ai.defineFlow(
 );
 
 const editorFlow = ai.defineFlow(
-  { name: 'editorFlow', inputSchema: z.string(), outputSchema: z.string() }, 
+  { name: 'editorFlow', inputSchema: z.string(), outputSchema: z.string() },
   async (draft) => {
     const systemPrompt = await getGenkitPromptFromFirestore('editor');
     const response = await ai.generate({ model: gemini15Pro, system: systemPrompt, prompt: draft, config: { temperature: 0.2 } });
@@ -154,9 +154,6 @@ const componentBuilderFlow = ai.defineFlow(
   }
 );
 
-// ===================================================================================
-// === NEW CONDUCTOR AGENT (Multi-Agent Proof of Concept)
-// ===================================================================================
 const taskExecutionFlow = ai.defineFlow(
   {
     name: 'taskExecutionFlow',
@@ -165,30 +162,61 @@ const taskExecutionFlow = ai.defineFlow(
   },
   async (taskDescription) => {
     console.log(`--- Conductor Agent: Starting task '${taskDescription}' ---`);
-
-    // 1. Call the Architect agent to create a plan
-    console.log(`--- Conductor Agent: Delegating to Architect... ---`);
     const plan = await architectFlow(taskDescription);
-
-    // 2. Format the plan into a clear input for the Creator agent
     const creatorInput = `
       Please write a document based on the following plan.
       Ensure the final output is well-structured and comprehensive.
-
       Title: ${plan.title}
-
       Steps:
       ${plan.steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}
     `;
-    
-    // 3. Call the Creator agent with the structured plan
-    console.log(`--- Conductor Agent: Delegating to Creator... ---`);
     const draft = await creatorFlow(creatorInput);
-
     console.log(`--- Conductor Agent: Task completed successfully! ---`);
-    
-    // 4. Return the final draft
     return draft;
+  }
+);
+
+// ===================================================================================
+// === NEW META AGENT: Task Classifier (For Smart Router)
+// ===================================================================================
+const taskClassifierFlow = ai.defineFlow(
+  {
+    name: 'taskClassifierFlow',
+    inputSchema: z.string().describe('The user\'s raw text input.'),
+    outputSchema: z.enum([
+      "component_request", // For requests to build a UI component
+      "task_request",      // For complex tasks requiring a multi-agent team
+      "general_chat"       // For anything else
+    ]).describe('The classification of the user\'s request.'),
+  },
+  async (userInput) => {
+    const systemPrompt = `
+      You are an expert task classifier. Your job is to analyze the user's request and classify it into one of the following categories.
+      You must respond with ONLY the category name and nothing else.
+
+      Categories:
+      - "component_request": The user is asking to create, build, design, or make a visual UI component. Keywords: "button", "form", "card", "navbar", "component", "UI", "design".
+      - "task_request": The user is asking for a complex, multi-step task to be completed. Keywords: "write", "draft", "create a report", "summarize", "plan", "analyze".
+      - "general_chat": The user is making a simple conversational statement, asking a question, or saying hello.
+
+      User Request: "${userInput}"
+    `;
+
+    const response = await ai.generate({
+      model: gemini15Pro,
+      system: systemPrompt,
+      output: { schema: z.string() }, // Force a simple string output
+      config: { temperature: 0.0 }
+    });
+
+    // Validate the response is one of the allowed enums, default to general_chat if not.
+    const classification = response.text;
+    if (["component_request", "task_request", "general_chat"].includes(classification)) {
+      return classification as "component_request" | "task_request" | "general_chat";
+    }
+    
+    console.warn(`Classifier returned an unexpected value: '${classification}'. Defaulting to 'general_chat'.`);
+    return "general_chat";
   }
 );
 // ===================================================================================
@@ -203,7 +231,8 @@ startFlowServer({
     creatorFlow,
     editorFlow,
     componentBuilderFlow,
-    taskExecutionFlow // <-- NEW FLOW ADDED HERE
+    taskExecutionFlow,
+    taskClassifierFlow // <-- NEW FLOW ADDED HERE
   ],
   port: 8080,
 });
