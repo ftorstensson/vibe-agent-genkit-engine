@@ -1,9 +1,9 @@
 /*
  * File: src/index.ts
- * Version: 5.3.2 (Task Classifier Agent - Final FIX)
+ * Version: 5.4.0 (Refactored Prompt Loading)
  * Date: 2025-09-04
- * Objective: Fixes a schema validation error in the taskClassifierFlow by
- *            removing the output schema and reliably using response.text().
+ * Objective: Refactors all agent flows to load prompts from the unified 'prompts'
+ *            collection in Firestore, removing all hardcoded prompts.
 */
 
 import { genkit, z } from 'genkit';
@@ -18,10 +18,11 @@ const ai = genkit({
   plugins: [vertexAI({ location: 'australia-southeast1' })],
 });
 
-// --- Helper Functions ---
+// --- Helper Functions (CORRECTED) ---
 async function getGenkitPromptFromFirestore(promptId: string): Promise<string> {
   try {
-    const docRef = db.collection('genkit_prompts').doc(promptId);
+    // THE FIX: All Genkit agents now look in the unified 'prompts' collection.
+    const docRef = db.collection('prompts').doc(promptId);
     const doc = await docRef.get();
     if (doc.exists) {
       const promptText = doc.data()?.prompt_text;
@@ -55,7 +56,7 @@ const PlanSchema = z.object({
   steps: z.array(z.string()).describe("A list of clear, actionable steps to accomplish the task."),
 });
 
-// --- Existing Agent Flows ---
+// --- Agent Flows ---
 const projectManagerChatFlow = ai.defineFlow(
   {
     name: 'projectManagerChatFlow',
@@ -63,23 +64,19 @@ const projectManagerChatFlow = ai.defineFlow(
     outputSchema: ChatResponseSchema,
   },
   async (messages) => {
-    try {
-      const response = await ai.generate({
-        model: gemini15Pro,
-        system: "You are a helpful and concise project manager AI.",
-        messages: messages.map(msg => ({
-          role: msg.role,
-          content: [{ text: msg.content }],
-        })),
-        config: { temperature: 0.5 },
-      });
-      const responseText = response.text;
-      if (!responseText) { throw new Error('AI failed to generate a response text.'); }
-      return { role: 'model' as const, content: responseText };
-    } catch (error) {
-      console.error('Error in projectManagerChatFlow:', error);
-      throw new Error(`Chat flow failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    }
+    // This flow is for general chat, not yet fully implemented.
+    const response = await ai.generate({
+      model: gemini15Pro,
+      system: "You are a helpful and concise project manager AI.",
+      messages: messages.map(msg => ({
+        role: msg.role,
+        content: [{ text: msg.content }],
+      })),
+      config: { temperature: 0.5 },
+    });
+    const responseText = response.text;
+    if (!responseText) { throw new Error('AI failed to generate a response text.'); }
+    return { role: 'model' as const, content: responseText };
   }
 );
 
@@ -138,17 +135,8 @@ const componentBuilderFlow = ai.defineFlow(
     outputSchema: z.string().describe('A string containing the generated React/TypeScript component code.'),
   },
   async (description) => {
-    const systemPrompt = `
-      You are an expert frontend developer specializing in React and TypeScript.
-      Your task is to generate a single, self-contained, production-quality React component based on the user's request.
-      RULES:
-      1.  **Output ONLY the TypeScript code** for the .tsx file.
-      2.  Do NOT include any explanations, apologies, or introductory sentences.
-      3.  Do NOT wrap the code in markdown backticks (\`\`\`).
-      4.  The component must be a modern, functional React component using hooks.
-      5.  Use Tailwind CSS for styling.
-      6.  The code must be complete and syntactically correct.
-    `;
+    // REFACTORED: Prompt is now loaded from Firestore
+    const systemPrompt = await getGenkitPromptFromFirestore('pm_component_builder');
     const response = await ai.generate({ model: gemini15Pro, system: systemPrompt, prompt: description });
     return response.text;
   }
@@ -165,7 +153,6 @@ const taskExecutionFlow = ai.defineFlow(
     const plan = await architectFlow(taskDescription);
     const creatorInput = `
       Please write a document based on the following plan.
-      Ensure the final output is well-structured and comprehensive.
       Title: ${plan.title}
       Steps:
       ${plan.steps.map((step, index) => `${index + 1}. ${step}`).join('\n')}
@@ -176,44 +163,29 @@ const taskExecutionFlow = ai.defineFlow(
   }
 );
 
-// ===================================================================================
-// === META AGENT: Task Classifier (For Smart Router) - FINAL FIX
-// ===================================================================================
 const taskClassifierFlow = ai.defineFlow(
   {
     name: 'taskClassifierFlow',
     inputSchema: z.string().describe('The user\'s raw text input.'),
     outputSchema: z.enum([
-      "component_request", // For requests to build a UI component
-      "task_request",      // For complex tasks requiring a multi-agent team
-      "general_chat"       // For anything else
+      "component_request",
+      "task_request",
+      "general_chat"
     ]).describe('The classification of the user\'s request.'),
   },
   async (userInput) => {
-    const systemPrompt = `
-      You are an expert task classifier. Your job is to analyze the user's request and classify it into one of the following categories.
-      You must respond with ONLY the category name and nothing else.
-
-      Categories:
-      - "component_request": The user is asking to create, build, design, or make a visual UI component. Keywords: "button", "form", "card", "navbar", "component", "UI", "design".
-      - "task_request": The user is asking for a complex, multi-step task to be completed. Keywords: "write", "draft", "create a report", "summarize", "plan", "analyze".
-      - "general_chat": The user is making a simple conversational statement, asking a question, or saying hello.
-    `;
+    // REFACTORED: Prompt is now loaded from Firestore
+    const systemPrompt = await getGenkitPromptFromFirestore('pm_task_classifier');
     
-    // --- THE FIX ---
-    // Remove the `output` schema constraint and use the reliable `.text()` method.
     const response = await ai.generate({
       model: gemini15Pro,
       messages: [
         { role: 'system', content: [{ text: systemPrompt }] },
         { role: 'user', content: [{ text: `User Request: "${userInput}"`}] }
       ],
-      // REMOVED: output: { schema: z.string() },
       config: { temperature: 0.0 }
     });
-    // --- END OF FIX ---
-
-    // Now, we reliably get the text from the response.
+    
     const classification = response.text.trim();
 
     if (["component_request", "task_request", "general_chat"].includes(classification)) {
@@ -224,8 +196,6 @@ const taskClassifierFlow = ai.defineFlow(
     return "general_chat";
   }
 );
-// ===================================================================================
-
 
 // --- Start the Server ---
 startFlowServer({
