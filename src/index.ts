@@ -2,8 +2,7 @@
  * File: src/index.ts
  * Version: 5.4.1 (Component Builder Fix)
  * Date: 2025-09-05
- * Objective: Fixes a silent failure in the componentBuilderFlow by refactoring
- *            it to use the reliable 'messages' array pattern for AI calls.
+ * Objective: Fixes a silent failure in the componentBuilderFlow by refactoring it to use the reliable 'messages' array pattern for AI calls.
 */
 
 import { genkit, z } from 'genkit';
