@@ -1,9 +1,8 @@
 /*
  * File: src/index.ts
- * Version: 5.4.0 (Refactored Prompt Loading)
- * Date: 2025-09-04
- * Objective: Refactors all agent flows to load prompts from the unified 'prompts'
- *            collection in Firestore, removing all hardcoded prompts.
+ * Version: 5.4.1 (Component Builder Fix)
+ * Date: 2025-09-05
+ * Objective: Fixes a silent failure in the componentBuilderFlow by refactoring it to use the reliable 'messages' array pattern for AI calls.
 */
 
 import { genkit, z } from 'genkit';
@@ -18,10 +17,9 @@ const ai = genkit({
   plugins: [vertexAI({ location: 'australia-southeast1' })],
 });
 
-// --- Helper Functions (CORRECTED) ---
+// --- Helper Functions ---
 async function getGenkitPromptFromFirestore(promptId: string): Promise<string> {
   try {
-    // THE FIX: All Genkit agents now look in the unified 'prompts' collection.
     const docRef = db.collection('prompts').doc(promptId);
     const doc = await docRef.get();
     if (doc.exists) {
@@ -64,7 +62,6 @@ const projectManagerChatFlow = ai.defineFlow(
     outputSchema: ChatResponseSchema,
   },
   async (messages) => {
-    // This flow is for general chat, not yet fully implemented.
     const response = await ai.generate({
       model: gemini15Pro,
       system: "You are a helpful and concise project manager AI.",
@@ -128,6 +125,9 @@ const editorFlow = ai.defineFlow(
   }
 );
 
+// ===================================================================================
+// === AGENT: Frontend Component Builder (CORRECTED)
+// ===================================================================================
 const componentBuilderFlow = ai.defineFlow(
   {
     name: 'componentBuilderFlow',
@@ -135,12 +135,22 @@ const componentBuilderFlow = ai.defineFlow(
     outputSchema: z.string().describe('A string containing the generated React/TypeScript component code.'),
   },
   async (description) => {
-    // REFACTORED: Prompt is now loaded from Firestore
     const systemPrompt = await getGenkitPromptFromFirestore('pm_component_builder');
-    const response = await ai.generate({ model: gemini15Pro, system: systemPrompt, prompt: description });
+    
+    // THE FIX: Use the reliable 'messages' array pattern.
+    const response = await ai.generate({
+      model: gemini15Pro,
+      messages: [
+        { role: 'system', content: [{ text: systemPrompt }] },
+        { role: 'user', content: [{ text: description }] }
+      ]
+    });
+    // END OF FIX
+
     return response.text;
   }
 );
+// ===================================================================================
 
 const taskExecutionFlow = ai.defineFlow(
   {
@@ -174,9 +184,7 @@ const taskClassifierFlow = ai.defineFlow(
     ]).describe('The classification of the user\'s request.'),
   },
   async (userInput) => {
-    // REFACTORED: Prompt is now loaded from Firestore
     const systemPrompt = await getGenkitPromptFromFirestore('pm_task_classifier');
-    
     const response = await ai.generate({
       model: gemini15Pro,
       messages: [
@@ -185,13 +193,10 @@ const taskClassifierFlow = ai.defineFlow(
       ],
       config: { temperature: 0.0 }
     });
-    
     const classification = response.text.trim();
-
     if (["component_request", "task_request", "general_chat"].includes(classification)) {
       return classification as "component_request" | "task_request" | "general_chat";
     }
-    
     console.warn(`Classifier returned an unexpected value: '${classification}'. Defaulting to 'general_chat'.`);
     return "general_chat";
   }
