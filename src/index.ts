@@ -180,6 +180,7 @@ const taskClassifierFlow = ai.defineFlow(
     outputSchema: z.enum([
       "component_request",
       "task_request",
+      "approval_request",
       "general_chat"
     ]).describe('The classification of the user\'s request.'),
   },
