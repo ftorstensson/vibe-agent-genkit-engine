@@ -1,6 +1,6 @@
 /*
  * File: src/index.ts
- * Version: 5.4.1 (Component Builder Fix)
+ * Version: 5.4.3 (add approval_request to classifier schema)
  * Date: 2025-09-05
  * Objective: Fixes a silent failure in the componentBuilderFlow by refactoring it to use the reliable 'messages' array pattern for AI calls.
 */
@@ -180,6 +180,7 @@ const taskClassifierFlow = ai.defineFlow(
     outputSchema: z.enum([
       "component_request",
       "task_request",
+      "approval_request",
       "general_chat"
     ]).describe('The classification of the user\'s request.'),
   },
@@ -194,8 +195,8 @@ const taskClassifierFlow = ai.defineFlow(
       config: { temperature: 0.0 }
     });
     const classification = response.text.trim();
-    if (["component_request", "task_request", "general_chat"].includes(classification)) {
-      return classification as "component_request" | "task_request" | "general_chat";
+    if (["component_request", "task_request", "approval_request", "general_chat"].includes(classification)) {
+      return classification as "component_request" | "task_request" | "approval_request" | "general_chat";
     }
     console.warn(`Classifier returned an unexpected value: '${classification}'. Defaulting to 'general_chat'.`);
     return "general_chat";
