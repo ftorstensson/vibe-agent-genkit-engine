@@ -1,6 +1,6 @@
 /*
  * File: src/index.ts
- * Version: 5.4.2 (Component Builder Fix)
+ * Version: 5.4.3 (add approval_request to classifier schema)
  * Date: 2025-09-05
  * Objective: Fixes a silent failure in the componentBuilderFlow by refactoring it to use the reliable 'messages' array pattern for AI calls.
 */
