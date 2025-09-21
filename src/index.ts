@@ -1,6 +1,6 @@
 /*
- * Milestone 5: The Definitive, Working Code with Flow Server
- * This version is a direct transcription of the expert-validated code.
+ * Milestone 6: Adding the Final Agent Flows
+ * Step 6.1: Add the architectFlow
 */
 import { genkit, z } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
@@ -24,12 +24,8 @@ const ContextualInputSchema = z.object({
   })).optional().describe("The conversation history."),
 });
 
-// --- Helper Functions (Commented out for initial testing) ---
-/*
-async function getGenkitPromptFromFirestore(promptId: string): Promise<string> {
-  // ... function code ...
-}
-*/
+// --- Helper Functions (Commented out) ---
+/* ... */
 
 // --- Agent Flows ---
 export const generalChatFlow = ai.defineFlow(
@@ -43,13 +39,10 @@ export const generalChatFlow = ai.defineFlow(
       ...(context.history || []).map(h => ({ role: h.role, content: [{ text: h.content }] })),
       { role: 'user' as const, content: [{ text: context.latestMessage }] },
     ];
-
     const response = await ai.generate({
       model: googleAI.model('gemini-1.5-pro'),
       messages,
     });
-    
-    console.log('generalChatFlow Response object:', response);
     return response.text;
   }
 );
@@ -62,21 +55,38 @@ export const taskClassifierFlow = ai.defineFlow(
   },
   async (context: z.infer<typeof ContextualInputSchema>) => {
     const systemPrompt = "You are a task classification expert. Analyze the user's request and classify it into one of the following categories: component_request, task_request, approval_request, general_chat.";
-
     const messages = [
       { role: 'system' as const, content: [{ text: systemPrompt }] },
       { role: 'user' as const, content: [{ text: `User Request: "${context.latestMessage}"` }] },
     ];
-
     const response = await ai.generate({
       model: googleAI.model('gemini-1.5-pro', { temperature: 0.0 }),
       messages,
     });
-
-    console.log('taskClassifierFlow Response object:', response);
-
-    const text = response.text;
-    return text.trim();
+    return response.text.trim();
   }
 );
 
+// NEW: Adding the Architect Flow
+export const architectFlow = ai.defineFlow(
+  {
+    name: 'architectFlow',
+    inputSchema: ContextualInputSchema,
+    outputSchema: z.string(), // We will upgrade this to the PlanSchema later.
+  },
+  async (context: z.infer<typeof ContextualInputSchema>) => {
+    const systemPrompt = "You are an expert software architect. Analyze the user's request and provide a clear, step-by-step technical plan to achieve their goal. The plan should be actionable and easy for a developer to follow.";
+
+    const messages = [
+        { role: 'system' as const, content: [{ text: systemPrompt }] },
+        { role: 'user' as const, content: [{ text: context.latestMessage }] },
+    ];
+
+    const response = await ai.generate({
+      model: googleAI.model('gemini-1.5-pro', { temperature: 0.2 }),
+      messages,
+    });
+    
+    return response.text;
+  }
+);
