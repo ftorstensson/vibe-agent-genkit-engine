@@ -1,6 +1,6 @@
 /*
  * Milestone 6: Adding the Final Agent Flows
- * Step 6.1: Add the architectFlow
+ * Step 6.2: Add the componentBuilderFlow (Complete File)
 */
 import { genkit, z } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
@@ -25,7 +25,22 @@ const ContextualInputSchema = z.object({
 });
 
 // --- Helper Functions (Commented out) ---
-/* ... */
+/*
+async function getGenkitPromptFromFirestore(promptId: string): Promise<string> {
+  try {
+    const docRef = db.collection('prompts').doc(promptId);
+    const doc = await docRef.get();
+    if (doc.exists) {
+      const promptText = doc.data()?.prompt_text;
+      if (promptText) { return promptText; }
+    }
+    throw new Error(`Prompt '${promptId}' not found or is empty.`);
+  } catch (error) {
+    console.error(`Failed to fetch Genkit prompt '${promptId}':`, error);
+    return "You are a helpful assistant.";
+  }
+}
+*/
 
 // --- Agent Flows ---
 export const generalChatFlow = ai.defineFlow(
@@ -67,26 +82,42 @@ export const taskClassifierFlow = ai.defineFlow(
   }
 );
 
-// NEW: Adding the Architect Flow
 export const architectFlow = ai.defineFlow(
   {
     name: 'architectFlow',
     inputSchema: ContextualInputSchema,
-    outputSchema: z.string(), // We will upgrade this to the PlanSchema later.
+    outputSchema: z.string(),
   },
   async (context: z.infer<typeof ContextualInputSchema>) => {
     const systemPrompt = "You are an expert software architect. Analyze the user's request and provide a clear, step-by-step technical plan to achieve their goal. The plan should be actionable and easy for a developer to follow.";
-
     const messages = [
         { role: 'system' as const, content: [{ text: systemPrompt }] },
         { role: 'user' as const, content: [{ text: context.latestMessage }] },
     ];
-
     const response = await ai.generate({
       model: googleAI.model('gemini-1.5-pro', { temperature: 0.2 }),
       messages,
     });
-    
+    return response.text;
+  }
+);
+
+export const componentBuilderFlow = ai.defineFlow(
+  {
+    name: 'componentBuilderFlow',
+    inputSchema: ContextualInputSchema,
+    outputSchema: z.string(),
+  },
+  async (context: z.infer<typeof ContextualInputSchema>) => {
+    const systemPrompt = "You are an expert frontend developer. Your specialty is creating clean, modern, production-ready UI components using React and TypeScript. Provide only the code for the component, enclosed in a single markdown code block.";
+    const messages = [
+        { role: 'system' as const, content: [{ text: systemPrompt }] },
+        { role: 'user' as const, content: [{ text: context.latestMessage }] },
+    ];
+    const response = await ai.generate({
+      model: googleAI.model('gemini-1.5-pro'),
+      messages,
+    });
     return response.text;
   }
 );
