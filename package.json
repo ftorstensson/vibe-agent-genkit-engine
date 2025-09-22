@@ -4,7 +4,7 @@
   "description": "The modernized Genkit AI Engine for the Vibe Coder project.",
   "main": "lib/index.js",
   "scripts": {
-    "dev": "genkit start -- tsx --watch src/index.ts",
+    "dev": "rm -rf .genkit && genkit start -- tsx --watch src/index.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
