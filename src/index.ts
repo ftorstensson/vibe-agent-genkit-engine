@@ -1,10 +1,13 @@
 /*
- * Milestone 6: Adding the Final Agent Flows
- * Step 6.2: Add the componentBuilderFlow (Complete File)
+ * Vibe Agent Genkit Engine - Definitive Production Version
+ * This version includes a conditional server start, allowing it to run
+ * correctly in both the local Genkit dev environment and in a deployed
+ * Cloud Run container.
 */
 import { genkit, z } from 'genkit';
 import { googleAI } from '@genkit-ai/google-genai';
 import { Firestore } from '@google-cloud/firestore';
+import { startFlowServer } from '@genkit-ai/express';
 
 // --- Initialization ---
 const db = new Firestore();
@@ -25,22 +28,7 @@ const ContextualInputSchema = z.object({
 });
 
 // --- Helper Functions (Commented out) ---
-/*
-async function getGenkitPromptFromFirestore(promptId: string): Promise<string> {
-  try {
-    const docRef = db.collection('prompts').doc(promptId);
-    const doc = await docRef.get();
-    if (doc.exists) {
-      const promptText = doc.data()?.prompt_text;
-      if (promptText) { return promptText; }
-    }
-    throw new Error(`Prompt '${promptId}' not found or is empty.`);
-  } catch (error) {
-    console.error(`Failed to fetch Genkit prompt '${promptId}':`, error);
-    return "You are a helpful assistant.";
-  }
-}
-*/
+/* ... */
 
 // --- Agent Flows ---
 export const generalChatFlow = ai.defineFlow(
@@ -121,3 +109,19 @@ export const componentBuilderFlow = ai.defineFlow(
     return response.text;
   }
 );
+
+// --- Production Server Start ---
+// This block is the key to our solution. It starts the server ONLY when
+// we are in a deployed environment (like Cloud Run), and NOT when we are
+// in the local development environment (where 'genkit start' handles it).
+if (process.env.GENKIT_ENV !== 'dev') {
+  startFlowServer({
+    port: 8080, // Cloud Run expects the server to listen on port 8080
+    flows: [
+      generalChatFlow,
+      taskClassifierFlow,
+      architectFlow,
+      componentBuilderFlow
+    ],
+  });
+}
