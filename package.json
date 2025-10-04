@@ -11,10 +11,10 @@
     "@genkit-ai/google-genai": "^1.2.0",
     "express": "^4.19.2",
     "genkit": "^1.2.0",
-    "typescript": "^5.5.3",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "typescript": "^5.5.3"
   },
   "devDependencies": {
-    "@types/express": "^5.0.3"
+    "@types/express": "^4.17.21"
   }
 }
