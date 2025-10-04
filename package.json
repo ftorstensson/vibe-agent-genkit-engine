@@ -6,9 +6,6 @@
   "scripts": {
     "build": "tsc"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
   "dependencies": {
     "@genkit-ai/express": "^1.2.0",
     "@genkit-ai/google-genai": "^1.2.0",
