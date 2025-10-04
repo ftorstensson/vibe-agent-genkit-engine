@@ -1,26 +1,20 @@
 {
   "name": "vibe-agent-genkit-engine",
-  "version": "6.0.0",
-  "description": "The modernized Genkit AI Engine for the Vibe Coder project.",
+  "version": "1.0.0",
+  "description": "The AI Services Engine for The Everything Agency",
   "main": "lib/index.js",
   "scripts": {
-    "dev": "rm -rf .genkit && genkit start -- tsx --watch src/index.ts",
-    "build": "tsc",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "@genkit-ai/express": "^1.19.3",
-    "@genkit-ai/google-genai": "^1.19.3",
-    "@google-cloud/firestore": "^7.8.0",
-    "genkit": "^1.0.0",
+    "@genkit-ai/express": "^1.2.0",
+    "@genkit-ai/google-genai": "^1.2.0",
     "express": "^4.19.2",
-    "zod": "^3.23.8"
-  },
-  "devDependencies": {
-    "tsx": "^4.16.2",
+    "genkit": "^1.2.0",
+    "zod": "^3.23.8",
     "typescript": "^5.5.3"
   }
 }
